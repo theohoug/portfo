@@ -71,3 +71,44 @@ export function RevealText({
     </span>
   );
 }
+
+export function RevealChars({
+  text,
+  className,
+  delay = 0,
+  stagger = 0.025,
+}: {
+  text: string;
+  className?: string;
+  delay?: number;
+  stagger?: number;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const inView = useInView(ref, { once: true, margin: "-10% 0px" });
+  const chars = Array.from(text);
+  return (
+    <span ref={ref} aria-label={text} className={className}>
+      {chars.map((c, i) => (
+        <span key={i} className="inline-block overflow-hidden align-baseline">
+          <motion.span
+            aria-hidden
+            className="inline-block will-change-transform"
+            initial={{ y: "120%", opacity: 0 }}
+            animate={
+              inView
+                ? { y: "0%", opacity: 1 }
+                : { y: "120%", opacity: 0 }
+            }
+            transition={{
+              duration: 0.9,
+              delay: delay + i * stagger,
+              ease: [0.16, 1, 0.3, 1],
+            }}
+          >
+            {c === " " ? "\u00A0" : c}
+          </motion.span>
+        </span>
+      ))}
+    </span>
+  );
+}

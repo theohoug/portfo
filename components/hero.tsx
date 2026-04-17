@@ -1,50 +1,34 @@
 "use client";
 
-import { motion, useMotionValue, useSpring, useTransform } from "framer-motion";
-import { useEffect } from "react";
+import { motion, useScroll, useTransform } from "framer-motion";
 import Link from "next/link";
+import { useRef } from "react";
 import { persona } from "@/lib/data";
 import { Magnetic } from "./magnetic";
+import { RevealChars } from "./reveal";
 
 const rotatingWords = ["motion", "shaders", "typography", "interaction", "systems"];
 
 export function Hero() {
-  const mx = useMotionValue(0);
-  const my = useMotionValue(0);
-  const sx = useSpring(mx, { stiffness: 60, damping: 18 });
-  const sy = useSpring(my, { stiffness: 60, damping: 18 });
-  const blobX = useTransform(sx, [-0.5, 0.5], [-40, 40]);
-  const blobY = useTransform(sy, [-0.5, 0.5], [-40, 40]);
-  const orbX = useTransform(sx, [-0.5, 0.5], [20, -20]);
-  const orbY = useTransform(sy, [-0.5, 0.5], [20, -20]);
-
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      mx.set(e.clientX / window.innerWidth - 0.5);
-      my.set(e.clientY / window.innerHeight - 0.5);
-    };
-    window.addEventListener("mousemove", onMove);
-    return () => window.removeEventListener("mousemove", onMove);
-  }, [mx, my]);
+  const ref = useRef<HTMLDivElement>(null);
+  const { scrollYProgress } = useScroll({
+    target: ref,
+    offset: ["start start", "end start"],
+  });
+  const yHeadline = useTransform(scrollYProgress, [0, 1], ["0%", "-40%"]);
+  const opacity = useTransform(scrollYProgress, [0, 0.7], [1, 0]);
 
   return (
     <section
       id="top"
+      ref={ref}
       className="relative flex min-h-[100svh] w-full flex-col items-center justify-center overflow-hidden px-6 pt-28 pb-16"
     >
       <motion.div
-        style={{ x: blobX, y: blobY }}
-        className="pointer-events-none absolute top-[18%] left-[8%] h-48 w-48 rounded-full bg-gradient-to-br from-[#ff7a6b] to-[#ffc97a] opacity-70 blur-3xl md:h-72 md:w-72"
-      />
-      <motion.div
-        style={{ x: orbX, y: orbY }}
-        className="pointer-events-none absolute bottom-[14%] right-[6%] h-56 w-56 rounded-full bg-gradient-to-br from-[#9b8cff] to-[#6be5c8] opacity-60 blur-3xl md:h-80 md:w-80"
-      />
-
-      <motion.div
+        style={{ opacity }}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.9, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+        transition={{ duration: 0.9, delay: 1.2, ease: [0.16, 1, 0.3, 1] }}
         className="glass mb-10 flex items-center gap-2 rounded-full px-4 py-1.5 text-[11px] font-medium tracking-[0.18em] uppercase"
       >
         <span className="relative inline-flex h-1.5 w-1.5">
@@ -54,24 +38,27 @@ export function Hero() {
         <span className="text-[#f6eddf]/85">{persona.availability}</span>
       </motion.div>
 
-      <h1 className="relative z-10 max-w-[10ch] text-center text-[clamp(3rem,11vw,10rem)] leading-[0.92] font-light tracking-[-0.04em] md:max-w-[14ch]">
-        <Word text="Interfaces" delay={0.35} />
+      <motion.h1
+        style={{ y: yHeadline }}
+        className="relative z-10 max-w-[10ch] text-center text-[clamp(3rem,12vw,11rem)] leading-[0.9] font-light tracking-[-0.045em] md:max-w-[14ch]"
+      >
+        <RevealChars text="Interfaces" delay={1.2} />
         <br />
         <span className="font-display text-[#fff6ea] italic">
-          <Word text="that" delay={0.55} />{" "}
-          <Word text="breathe" delay={0.7} />
+          <RevealChars text="that breathe" delay={1.4} />
         </span>
         <br />
         <span className="inline-flex items-baseline gap-3">
-          <Word text="through" delay={0.85} />
+          <RevealChars text="through" delay={1.65} />
           <RotatingWord words={rotatingWords} />
         </span>
-      </h1>
+      </motion.h1>
 
       <motion.div
+        style={{ opacity }}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.9, delay: 1.4, ease: [0.16, 1, 0.3, 1] }}
+        transition={{ duration: 0.9, delay: 2.2, ease: [0.16, 1, 0.3, 1] }}
         className="mt-10 flex max-w-2xl flex-col items-center gap-8 text-center"
       >
         <p className="text-base leading-relaxed text-[#f6eddf]/70 md:text-lg">
@@ -118,7 +105,7 @@ export function Hero() {
         <motion.span
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 1.8, duration: 1 }}
+          transition={{ delay: 2.6, duration: 1 }}
           className="inline-flex items-center gap-3"
         >
           <span className="h-5 w-px bg-gradient-to-b from-transparent via-[#fff6ea] to-transparent" />
@@ -138,21 +125,6 @@ export function Hero() {
   );
 }
 
-function Word({ text, delay = 0 }: { text: string; delay?: number }) {
-  return (
-    <span className="inline-block overflow-hidden align-baseline">
-      <motion.span
-        className="inline-block will-change-transform"
-        initial={{ y: "110%" }}
-        animate={{ y: "0%" }}
-        transition={{ duration: 1, delay, ease: [0.16, 1, 0.3, 1] }}
-      >
-        {text}
-      </motion.span>
-    </span>
-  );
-}
-
 function RotatingWord({ words }: { words: string[] }) {
   return (
     <span className="relative inline-grid h-[0.95em] place-items-start overflow-hidden align-baseline">
@@ -166,7 +138,7 @@ function RotatingWord({ words }: { words: string[] }) {
           ease: [0.83, 0, 0.17, 1],
           repeat: Infinity,
           repeatDelay: 0,
-          delay: 1.3,
+          delay: 2.2,
         }}
       >
         {words.concat(words[0]).map((w, i) => (
