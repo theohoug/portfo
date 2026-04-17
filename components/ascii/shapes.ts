@@ -2,23 +2,31 @@ export type Point = { x: number; y: number; z: number };
 
 export function sphere(n: number): Point[] {
   const pts: Point[] = [];
-  const phi = Math.PI * (Math.sqrt(5) - 1);
-  for (let i = 0; i < n; i++) {
-    const y = 1 - (i / (n - 1)) * 2;
-    const r = Math.sqrt(1 - y * y);
-    const t = phi * i;
-    pts.push({ x: Math.cos(t) * r, y, z: Math.sin(t) * r });
+  const lat = Math.max(14, Math.round(Math.sqrt(n * 0.55)));
+  const lon = Math.max(24, Math.round(n / lat));
+  for (let i = 0; i < lat; i++) {
+    const phi = (i / (lat - 1)) * Math.PI - Math.PI / 2;
+    for (let j = 0; j < lon; j++) {
+      const theta = (j / lon) * Math.PI * 2;
+      pts.push({
+        x: Math.cos(phi) * Math.cos(theta),
+        y: Math.sin(phi),
+        z: Math.cos(phi) * Math.sin(theta),
+      });
+      if (pts.length >= n) return pts;
+    }
   }
   return pts;
 }
 
-export function torus(n: number, R = 1, r = 0.38): Point[] {
+export function torus(n: number, R = 0.92, r = 0.36): Point[] {
   const pts: Point[] = [];
-  const side = Math.ceil(Math.sqrt(n));
-  for (let i = 0; i < side; i++) {
-    for (let j = 0; j < side; j++) {
-      const u = (i / side) * Math.PI * 2;
-      const v = (j / side) * Math.PI * 2;
+  const uRes = Math.max(36, Math.round(Math.sqrt(n * 1.8)));
+  const vRes = Math.max(14, Math.round(n / uRes));
+  for (let i = 0; i < uRes; i++) {
+    for (let j = 0; j < vRes; j++) {
+      const u = (i / uRes) * Math.PI * 2;
+      const v = (j / vRes) * Math.PI * 2;
       pts.push({
         x: (R + r * Math.cos(v)) * Math.cos(u),
         y: r * Math.sin(v),
@@ -32,55 +40,38 @@ export function torus(n: number, R = 1, r = 0.38): Point[] {
 
 export function torusKnot(n: number, p = 2, q = 3): Point[] {
   const pts: Point[] = [];
-  const tube = 0.3;
-  for (let i = 0; i < n; i++) {
-    const t = (i / n) * Math.PI * 2;
-    const ringOffset = (i % 12) / 12;
-    const vTheta = ringOffset * Math.PI * 2;
-    const radial = 0.55 + Math.cos(q * t) * 0.2;
-    const x = radial * Math.cos(p * t);
-    const y = radial * Math.sin(p * t);
-    const z = Math.sin(q * t) * 0.35;
-    pts.push({
-      x: x + Math.cos(vTheta) * tube * 0.2,
-      y: y + Math.sin(vTheta) * tube * 0.2,
-      z: z + Math.cos(vTheta) * tube * 0.2,
-    });
-  }
-  return pts;
-}
-
-export function ribbon(n: number): Point[] {
-  const pts: Point[] = [];
-  for (let i = 0; i < n; i++) {
-    const u = (i / n) * Math.PI * 4;
-    const ringOffset = (i % 10) / 10 - 0.5;
-    pts.push({
-      x: Math.cos(u) * (0.8 + Math.sin(u * 0.5) * 0.2),
-      y: ringOffset * 0.8,
-      z: Math.sin(u) * (0.8 + Math.sin(u * 0.5) * 0.2),
-    });
-  }
-  return pts;
-}
-
-export function heart(n: number): Point[] {
-  const pts: Point[] = [];
-  const side = Math.ceil(Math.sqrt(n));
-  for (let i = 0; i < side; i++) {
-    for (let j = 0; j < side; j++) {
-      const u = (i / side) * Math.PI * 2;
-      const v = ((j / side) - 0.5) * Math.PI;
-      const x = 16 * Math.pow(Math.sin(u), 3);
-      const y =
-        13 * Math.cos(u) -
-        5 * Math.cos(2 * u) -
-        2 * Math.cos(3 * u) -
-        Math.cos(4 * u);
+  const steps = Math.max(120, Math.round(n * 0.85));
+  const tube = 0.22;
+  const tubeSeg = Math.max(8, Math.round(n / steps));
+  for (let i = 0; i < steps; i++) {
+    const t = (i / steps) * Math.PI * 2;
+    const cx = Math.cos(p * t) * (0.55 + 0.25 * Math.cos(q * t));
+    const cy = Math.sin(p * t) * (0.55 + 0.25 * Math.cos(q * t));
+    const cz = Math.sin(q * t) * 0.3;
+    const dt = 0.01;
+    const dx = Math.cos(p * (t + dt)) * (0.55 + 0.25 * Math.cos(q * (t + dt))) - cx;
+    const dy = Math.sin(p * (t + dt)) * (0.55 + 0.25 * Math.cos(q * (t + dt))) - cy;
+    const dz = Math.sin(q * (t + dt)) * 0.3 - cz;
+    const len = Math.hypot(dx, dy, dz) || 1;
+    const tx = dx / len, ty = dy / len, tz = dz / len;
+    let ax = 0, ay = 0, az = 1;
+    if (Math.abs(tz) > 0.9) { ax = 1; ay = 0; az = 0; }
+    const nx = ty * az - tz * ay;
+    const ny = tz * ax - tx * az;
+    const nz = tx * ay - ty * ax;
+    const nLen = Math.hypot(nx, ny, nz) || 1;
+    const nxu = nx / nLen, nyu = ny / nLen, nzu = nz / nLen;
+    const bx = ty * nzu - tz * nyu;
+    const by = tz * nxu - tx * nzu;
+    const bz = tx * nyu - ty * nxu;
+    for (let k = 0; k < tubeSeg; k++) {
+      const a = (k / tubeSeg) * Math.PI * 2;
+      const ca = Math.cos(a) * tube;
+      const sa = Math.sin(a) * tube;
       pts.push({
-        x: (x / 18) * Math.cos(v),
-        y: y / 18,
-        z: (x / 18) * Math.sin(v),
+        x: cx + nxu * ca + bx * sa,
+        y: cy + nyu * ca + by * sa,
+        z: cz + nzu * ca + bz * sa,
       });
       if (pts.length >= n) return pts;
     }
@@ -88,49 +79,91 @@ export function heart(n: number): Point[] {
   return pts;
 }
 
-export function wave(n: number): Point[] {
+export function ribbon(n: number): Point[] {
   const pts: Point[] = [];
-  const side = Math.ceil(Math.sqrt(n));
-  for (let i = 0; i < side; i++) {
-    for (let j = 0; j < side; j++) {
-      const u = (i / side) * 2 - 1;
-      const v = (j / side) * 2 - 1;
-      const r = Math.sqrt(u * u + v * v);
-      const y = Math.cos(r * 6) * 0.25 * Math.exp(-r * 1.2);
-      pts.push({ x: u, y, z: v });
+  const turns = 3.5;
+  const strand = Math.max(10, Math.round(Math.sqrt(n / 3)));
+  const steps = Math.max(80, Math.round(n / strand));
+  for (let i = 0; i < steps; i++) {
+    const t = i / steps;
+    const u = t * Math.PI * 2 * turns;
+    const radius = 0.85 - 0.25 * t;
+    for (let k = 0; k < strand; k++) {
+      const w = (k / (strand - 1) - 0.5) * 0.35;
+      pts.push({
+        x: Math.cos(u) * radius,
+        y: w + (t - 0.5) * 0.15,
+        z: Math.sin(u) * radius,
+      });
       if (pts.length >= n) return pts;
     }
   }
   return pts;
 }
 
-export function rotateY(p: Point, a: number): Point {
-  const c = Math.cos(a);
-  const s = Math.sin(a);
-  return { x: p.x * c + p.z * s, y: p.y, z: -p.x * s + p.z * c };
-}
-
-export function rotateX(p: Point, a: number): Point {
-  const c = Math.cos(a);
-  const s = Math.sin(a);
-  return { x: p.x, y: p.y * c - p.z * s, z: p.y * s + p.z * c };
-}
-
-export function rotateZ(p: Point, a: number): Point {
-  const c = Math.cos(a);
-  const s = Math.sin(a);
-  return { x: p.x * c - p.y * s, y: p.x * s + p.y * c, z: p.z };
-}
-
-export function lerpShapes(a: Point[], b: Point[], t: number): Point[] {
-  const out: Point[] = [];
-  const n = Math.min(a.length, b.length);
-  for (let i = 0; i < n; i++) {
-    out.push({
-      x: a[i].x + (b[i].x - a[i].x) * t,
-      y: a[i].y + (b[i].y - a[i].y) * t,
-      z: a[i].z + (b[i].z - a[i].z) * t,
-    });
+export function helix(n: number): Point[] {
+  const pts: Point[] = [];
+  const turns = 4;
+  const strands = 3;
+  const perStrand = Math.floor(n / strands);
+  for (let s = 0; s < strands; s++) {
+    const offset = (s / strands) * Math.PI * 2;
+    for (let i = 0; i < perStrand; i++) {
+      const t = i / perStrand;
+      const u = t * Math.PI * 2 * turns + offset;
+      const y = (t - 0.5) * 1.6;
+      pts.push({
+        x: Math.cos(u) * 0.7,
+        y,
+        z: Math.sin(u) * 0.7,
+      });
+      if (pts.length >= n) return pts;
+    }
   }
-  return out;
+  return pts;
+}
+
+export function heart(n: number): Point[] {
+  const pts: Point[] = [];
+  const shells = Math.max(10, Math.round(Math.sqrt(n * 0.6)));
+  const each = Math.max(20, Math.round(n / shells));
+  for (let s = 0; s < shells; s++) {
+    const sh = (s / (shells - 1) - 0.5) * 0.6;
+    for (let i = 0; i < each; i++) {
+      const t = (i / each) * Math.PI * 2;
+      const x = 16 * Math.pow(Math.sin(t), 3);
+      const y =
+        13 * Math.cos(t) -
+        5 * Math.cos(2 * t) -
+        2 * Math.cos(3 * t) -
+        Math.cos(4 * t);
+      pts.push({
+        x: (x / 20) * (1 - Math.abs(sh) * 0.2),
+        y: y / 20,
+        z: sh,
+      });
+      if (pts.length >= n) return pts;
+    }
+  }
+  return pts;
+}
+
+export function rotate(p: Point, rx: number, ry: number, rz: number): Point {
+  const cx = Math.cos(rx), sx = Math.sin(rx);
+  const cy = Math.cos(ry), sy = Math.sin(ry);
+  const cz = Math.cos(rz), sz = Math.sin(rz);
+  let y = p.y * cx - p.z * sx;
+  let z = p.y * sx + p.z * cx;
+  let x = p.x;
+  const nx = x * cy + z * sy;
+  z = -x * sy + z * cy;
+  x = nx;
+  const fx = x * cz - y * sz;
+  const fy = x * sz + y * cz;
+  return { x: fx, y: fy, z };
+}
+
+export function hash(i: number): number {
+  const x = Math.sin(i * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
 }
