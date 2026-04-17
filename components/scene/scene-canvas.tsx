@@ -2,6 +2,7 @@
 
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment } from "@react-three/drei";
+import { EffectComposer } from "@react-three/postprocessing";
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import {
@@ -11,6 +12,7 @@ import {
   Pill,
   Orbs,
 } from "./objects";
+import { Ascii } from "./ascii-effect";
 
 function CameraRig({
   scroll,
@@ -94,6 +96,10 @@ export function SceneCanvas() {
         <SoftTorus {...refs} />
         <Pill {...refs} />
         <Orbs {...refs} />
+
+        <EffectComposer multisampling={0}>
+          <Ascii cell={9} saturation={1.4} brightness={1.2} />
+        </EffectComposer>
       </Canvas>
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_40%,rgba(10,6,23,0.55)_100%)]" />
       <div className="grain-overlay" />
