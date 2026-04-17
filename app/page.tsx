@@ -1,4 +1,4 @@
-import { Scene } from "@/components/scene/scene";
+import { AsciiScene } from "@/components/ascii/ascii-scene";
 import { Cursor } from "@/components/cursor";
 import { ScrollProgress } from "@/components/scroll-progress";
 import { SmoothScroll } from "@/components/smooth-scroll";
@@ -17,7 +17,7 @@ export default function Home() {
     <>
       <Loader />
       <SmoothScroll />
-      <Scene />
+      <AsciiScene />
       <ScrollProgress />
       <Cursor />
       <Nav />
