@@ -23,3 +23,4 @@ GitHub Actions**. The site is served at
 The workflow sets `DEPLOY_TARGET=pages`, which enables `basePath` / `assetPrefix`
 (`/portfo`) in `next.config.ts`. Locally, leave the env var unset so you can
 open `out/index.html` or run the dev server normally.
+
