@@ -26,20 +26,18 @@ const makeFish = (n: number): Fish[] => {
   for (let i = 0; i < n; i++) {
     out.push({
       angle: rand(i, 1) * Math.PI * 2,
-      angSpeed: (0.3 + rand(i, 2) * 0.5) * (rand(i, 3) > 0.5 ? 1 : -1),
-      radius: 0.55 + rand(i, 4) * 0.55,
-      yBase: (rand(i, 5) - 0.5) * 1.3,
-      yAmp: 0.05 + rand(i, 6) * 0.18,
+      angSpeed: (0.35 + rand(i, 2) * 0.5) * (rand(i, 3) > 0.5 ? 1 : -1),
+      radius: 0.5 + rand(i, 4) * 0.55,
+      yBase: (rand(i, 5) - 0.5) * 1.4,
+      yAmp: 0.06 + rand(i, 6) * 0.2,
       yPhase: rand(i, 7) * Math.PI * 2,
-      z: (rand(i, 8) - 0.5) * 0.6,
+      z: (rand(i, 8) - 0.5) * 0.8,
     });
   }
   return out;
 };
 
-const FISH_N = 40;
-const TUBE_STEPS = 160;
-const TUBE_RING = 14;
+const FISH_N = 38;
 
 function rotateY(x: number, z: number, a: number): [number, number] {
   const c = Math.cos(a), s = Math.sin(a);
@@ -55,6 +53,38 @@ const smoothstep = (a: number, b: number, x: number) => {
   return t * t * (3 - 2 * t);
 };
 
+const easeInOut = (t: number) => {
+  t = Math.min(1, Math.max(0, t));
+  return t * t * (3 - 2 * t);
+};
+
+// Camera Z position through the journey.
+// Fish float at z≈0. Tube spans z=0..20. Arrival scene at z=24.
+function cameraZ(s: number): number {
+  // phase 0 — fish: camera at z=-6, steady
+  if (s < 0.12) return -6;
+  // phase 1 — approach: camera eases from -6 to -0.5 (mouth growing)
+  if (s < 0.30) {
+    const t = (s - 0.12) / 0.18;
+    const eased = t * t;
+    return -6 + eased * 5.5;
+  }
+  // phase 2 — dive: crosses entrance, accelerates through 0..18
+  if (s < 0.72) {
+    const t = (s - 0.30) / 0.42;
+    const eased = easeInOut(t);
+    return -0.5 + eased * 18.5;
+  }
+  // phase 3 — emerge: decelerates past 20 toward 24
+  if (s < 0.88) {
+    const t = (s - 0.72) / 0.16;
+    const eased = 1 - Math.pow(1 - t, 2.5);
+    return 18 + eased * 6;
+  }
+  // phase 4 — arrived
+  return 24;
+}
+
 export function Stage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -65,8 +95,8 @@ export function Stage() {
     if (!ctx) return;
 
     const fishes = makeFish(FISH_N);
-
     const grid = new AsciiGrid();
+
     let dpr = Math.min(window.devicePixelRatio || 1, 2);
     let W = 0, H = 0;
     let cellW = 9, cellH = 15, fontSize = 14;
@@ -106,15 +136,20 @@ export function Stage() {
     let last = performance.now();
     let raf = 0;
     let sSmooth = 0;
+    let prevCamZ = cameraZ(0);
 
     const put = (c: number, r: number, ch: string, tone: 0 | 1 | 2 | 3) => {
-      const idx =
-        ch === "█"
-          ? CHARS.length - 1
-          : CHARS.indexOf(ch) >= 0
-            ? CHARS.indexOf(ch)
-            : CHARS.length - 2;
+      const idx = ch === " " ? 0
+        : CHARS.indexOf(ch) >= 0 ? CHARS.indexOf(ch)
+        : CHARS.length - 1;
       grid.setChar(c, r, idx, tone);
+    };
+
+    const putZ = (c: number, r: number, ch: string, tone: 0 | 1 | 2 | 3, z: number) => {
+      const idx = ch === " " ? 0
+        : CHARS.indexOf(ch) >= 0 ? CHARS.indexOf(ch)
+        : CHARS.length - 1;
+      grid.setZ(c, r, idx, tone, z);
     };
 
     const writeGlyphsPartial = (
@@ -147,7 +182,7 @@ export function Stage() {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       time += dt;
-      sSmooth += (scroll.v - sSmooth) * Math.min(1, dt * 5);
+      sSmooth += (scroll.v - sSmooth) * Math.min(1, dt * 3.2);
       const s = sSmooth;
 
       grid.clear();
@@ -155,20 +190,24 @@ export function Stage() {
       const minDim = Math.min(W, H);
       const cx = W * 0.5;
       const cy = H * 0.5;
-      const scale = minDim * 0.33;
-      const focal = 3.2;
+      const focal = 3.0;
 
-      // phase mapping
-      const introVis = 1 - smoothstep(0.22, 0.38, s);
-      const tubeVis = smoothstep(0.22, 0.38, s) * (1 - smoothstep(0.72, 0.82, s));
-      const diveT = smoothstep(0.38, 0.66, s);
-      const scene2Vis = smoothstep(0.7, 0.88, s);
+      // Phases
+      const fishVis = 1 - smoothstep(0.10, 0.22, s);
+      const formingVis = smoothstep(0.10, 0.22, s) * (1 - smoothstep(0.26, 0.32, s));
+      const sphereVis = smoothstep(0.62, 0.88, s);
+      const scene2TextVis = smoothstep(0.78, 0.95, s);
 
-      const yaw = time * 0.1 + s * Math.PI * 0.5;
-      const pitch = Math.sin(time * 0.15) * 0.1;
+      const camZ = cameraZ(s);
+      const camSpeed = Math.abs(camZ - prevCamZ) / Math.max(dt, 0.001);
+      prevCamZ = camZ;
 
-      // ——— Fish ———
-      if (introVis > 0.02) {
+      const yaw = time * 0.08 + s * 0.4;
+      const pitch = Math.sin(time * 0.12) * 0.06;
+
+      // ——— Fish school ———
+      if (fishVis > 0.02) {
+        const scaleF = minDim * 0.34;
         for (let i = 0; i < FISH_N; i++) {
           const f = fishes[i];
           const a = f.angle + time * f.angSpeed;
@@ -176,126 +215,183 @@ export function Stage() {
           let px = Math.cos(a) * f.radius;
           let py = f.yBase + bob;
           let pz = f.z;
+          // as forming increases, compress radius to 0 (fish pulled into center)
+          const pull = 1 - smoothstep(0.10, 0.24, s);
+          px *= pull;
+          py *= pull;
           [px, pz] = rotateY(px, pz, yaw);
           [py, pz] = rotateX(py, pz, pitch);
 
-          const zf = focal / (focal + pz);
-          const sx = px * zf * scale + cx;
-          const sy = -py * zf * scale + cy;
+          const zf = focal / (focal + pz - camZ);
+          if (zf <= 0) continue;
+          const sx = px * zf * scaleF + cx;
+          const sy = -py * zf * scaleF + cy;
           if (sx < 0 || sy < 0 || sx >= W || sy >= H) continue;
 
-          const nextA = a + 0.04;
-          const nextRaw = Math.cos(nextA) * f.radius;
-          const [nx2] = rotateY(nextRaw, pz, yaw);
-          const vx = nx2 * zf * scale + cx - sx;
+          // direction of motion at next step
+          const a2 = a + 0.04 * Math.sign(f.angSpeed || 1);
+          const nx = Math.cos(a2) * f.radius * pull;
+          const [nxr] = rotateY(nx, pz, yaw);
+          const vx = nxr * zf * scaleF + cx - sx;
 
-          const spriteR = i % 3 === 0 ? "><>>" : "><>";
-          const spriteL = i % 3 === 0 ? "<<><" : "<><";
+          const spriteR = ["><>", "><>>", "≡>"][i % 3];
+          const spriteL = ["<><", "<<><", "<≡"][i % 3];
           const sprite = vx >= 0 ? spriteR : spriteL;
 
           const tone: 0 | 1 | 2 | 3 =
-            introVis < 0.3 ? 1 : pz > 0.2 ? 3 : pz > -0.1 ? 2 : 1;
+            fishVis < 0.25 ? 1 : pz > 0.1 ? 3 : pz > -0.2 ? 2 : 1;
 
           const col = Math.floor(sx / cellW);
           const row = Math.floor(sy / cellH);
-          const startC = col - Math.floor(sprite.length / 2);
-          grid.writeText(startC, row, sprite, tone);
+          grid.writeText(col - Math.floor(sprite.length / 2), row, sprite, tone);
         }
       }
 
-      // ——— Tube dive ———
-      if (tubeVis > 0.02) {
-        const tubeR = isMobile ? 0.55 : 0.5;
-        // Camera travels along +z through a tube that spans [-1.2, 2.2]
-        const camZ = -1.2 + diveT * 3.4;
-        for (let i = 0; i < TUBE_STEPS; i++) {
-          const zBase = -1.2 + (i / TUBE_STEPS) * 3.4;
-          for (let j = 0; j < TUBE_RING; j++) {
-            const theta =
-              (j / TUBE_RING) * Math.PI * 2 + time * 0.6 + i * 0.12;
-            let wx = Math.cos(theta) * tubeR;
-            let wy = Math.sin(theta) * tubeR;
-            let wz = zBase;
+      // ——— Tube (visible from approach through emerge) ———
+      // Tube geometry: cylinder radius 1.0, z=[0, 20], dense rings with twist.
+      if (s > 0.08 && s < 0.90) {
+        const tubeR = 1.0;
+        const tubeScale = minDim * 0.58; // large enough to envelop when close
+        const zMin = 0;
+        const zMax = 20;
+        const nRings = 72;
+        const perRing = 22;
 
-            // formation from fish: before dive, tube rotates with yaw
-            if (diveT < 0.12) {
-              [wx, wz] = rotateY(wx, wz, yaw);
-              [wy, wz] = rotateX(wy, wz, pitch);
-            }
+        for (let i = 0; i < nRings; i++) {
+          const t = i / (nRings - 1);
+          const wz = zMin + t * (zMax - zMin);
+          const relZ = wz - camZ;
+          if (relZ < 0.05) continue; // behind camera
+          if (relZ > 12) continue; // too far to matter
 
-            const relZ = wz - camZ;
-            if (relZ < -0.05 || relZ > 3.5) continue;
+          // twist that accumulates with distance — gives sense of rotation
+          const twist = wz * 0.24 + time * 0.3 + s * 2.2;
+
+          // ring intensity: feature rings (every 6th) get different char
+          const isFeature = i % 6 === 0;
+          const isTick = i % 3 === 0;
+
+          const depthT = Math.max(0, Math.min(1, 1 - relZ / 12));
+          const ringFade =
+            // fade in as approach, out as exit
+            smoothstep(0.08, 0.30, s) *
+            (1 - smoothstep(0.80, 0.90, s));
+
+          for (let j = 0; j < perRing; j++) {
+            const phi = (j / perRing) * Math.PI * 2 + twist;
+            const wx = Math.cos(phi) * tubeR;
+            const wy = Math.sin(phi) * tubeR;
+
+            // optional gate markers (vertical ribs) at feature rings
+            const gateFactor = isFeature ? 1 : isTick ? 0.7 : 0.4;
 
             const zf = focal / (focal + relZ);
-            const sx = wx * zf * scale * 1.25 + cx;
-            const sy = -wy * zf * scale * 1.25 + cy;
+            const sx = wx * zf * tubeScale + cx;
+            const sy = -wy * zf * tubeScale + cy;
             if (sx < 0 || sy < 0 || sx >= W || sy >= H) continue;
 
             const col = Math.floor(sx / cellW);
             const row = Math.floor(sy / cellH);
-            const nearness = Math.max(0, Math.min(1, 1 - relZ / 3.5));
-            const ci = Math.max(
-              1,
-              Math.min(
-                CHARS.length - 1,
-                Math.floor(Math.pow(nearness, 1.3) * (CHARS.length - 1)),
-              ),
-            );
+
+            const charRamp = " .:;+*#%@";
+            const rampT = Math.pow(depthT, 1.2) * gateFactor * ringFade;
+            const ci = Math.floor(rampT * (charRamp.length - 1));
+            if (ci < 1) continue;
+            const ch = charRamp[ci];
             const tone: 0 | 1 | 2 | 3 =
-              tubeVis < 0.15
-                ? 1
-                : nearness > 0.7
-                  ? 3
-                  : nearness > 0.4
-                    ? 2
-                    : 1;
-            grid.setZ(col, row, ci, tone, -relZ);
+              depthT > 0.7 && isFeature ? 3
+              : depthT > 0.5 ? 2
+              : depthT > 0.25 ? 1 : 0;
+            if (tone === 0) continue;
+            putZ(col, row, ch, tone, -relZ);
+
+            // Speed streaks: radially outward when moving fast
+            if (camSpeed > 2 && depthT > 0.3) {
+              const dx = sx - cx;
+              const dy = sy - cy;
+              const len = Math.hypot(dx, dy) || 1;
+              const ux = dx / len, uy = dy / len;
+              const stretchCells = Math.min(
+                3,
+                Math.floor(camSpeed / 6) + 1,
+              );
+              for (let k = 1; k <= stretchCells; k++) {
+                const tcol = col + Math.round((ux * k * cellW) / cellW);
+                const trow = row + Math.round((uy * k * cellH) / cellH);
+                const streakTone: 0 | 1 | 2 | 3 =
+                  k === 1 ? (Math.max(1, tone - 1) as 0 | 1 | 2 | 3) : 1;
+                putZ(tcol, trow, charRamp[Math.max(1, ci - k)], streakTone, -relZ - 0.05 * k);
+              }
+            }
+          }
+        }
+
+        // Central vanishing point glow — small dot growing as we approach
+        if (s < 0.40) {
+          const glowDepth = Math.max(0.01, -camZ);
+          const zf = focal / (focal + glowDepth);
+          const radius = Math.max(2, 12 * zf);
+          for (let yy = -radius; yy <= radius; yy += cellH) {
+            for (let xx = -radius; xx <= radius; xx += cellW) {
+              const d = Math.hypot(xx, yy);
+              if (d > radius) continue;
+              const col = Math.floor((cx + xx) / cellW);
+              const row = Math.floor((cy + yy) / cellH);
+              const t2 = 1 - d / radius;
+              const ci = Math.floor(t2 * 8);
+              const ch = " .:;+*#%@"[ci] ?? "·";
+              if (ch === " ") continue;
+              const tone: 0 | 1 | 2 | 3 = t2 > 0.6 ? 3 : t2 > 0.3 ? 2 : 1;
+              putZ(col, row, ch, tone, 5);
+            }
           }
         }
       }
 
-      // ——— Scene 2 shape (rotating sphere) ———
-      if (scene2Vis > 0.03) {
+      // ——— Arrival sphere (emerges from tunnel end) ———
+      if (sphereVis > 0.02) {
         const lat = 20;
         const lon = 56;
-        const shapeCx = isMobile ? W * 0.5 : W * 0.75;
-        const shapeCy = isMobile ? H * 0.32 : H * 0.5;
-        const shapeScale =
-          (isMobile ? minDim * 0.22 : minDim * 0.3) * scene2Vis;
-        const ry = time * 0.3 + s * Math.PI * 1.5;
-        const rx = time * 0.18;
-        for (let i = 0; i < lat; i++) {
-          const phi = (i / (lat - 1)) * Math.PI - Math.PI / 2;
-          for (let j = 0; j < lon; j++) {
-            const theta = (j / lon) * Math.PI * 2;
-            const px0 = Math.cos(phi) * Math.cos(theta);
-            const py0 = Math.sin(phi);
-            const pz0 = Math.cos(phi) * Math.sin(theta);
-            const [x1, z1] = rotateY(px0, pz0, ry);
-            const [y2, z2] = rotateX(py0, z1, rx);
-            const px = x1, py = y2, pz = z2;
-            const zf = focal / (focal + pz);
-            const sx = px * zf * shapeScale + shapeCx;
-            const sy = -py * zf * shapeScale + shapeCy;
-            if (sx < 0 || sy < 0 || sx >= W || sy >= H) continue;
-            const col = Math.floor(sx / cellW);
-            const row = Math.floor(sy / cellH);
-            const depthT = (pz + 1) * 0.5;
-            const ci = Math.max(
-              1,
-              Math.min(
-                CHARS.length - 1,
-                Math.floor(depthT * (CHARS.length - 1)),
-              ),
-            );
-            const tone: 0 | 1 | 2 | 3 =
-              depthT > 0.72 ? 3 : depthT > 0.45 ? 2 : 1;
-            grid.setZ(col, row, ci, tone, pz);
+        // Sphere world position
+        const sphereWz = 22 - camZ; // relative to cam
+        if (sphereWz > 0.05) {
+          const shapeCx = isMobile ? cx : W * 0.72;
+          const shapeCy = isMobile ? H * 0.32 : cy;
+          const ry = time * 0.3 + s * Math.PI * 2;
+          const rx = time * 0.18;
+          const baseScale = isMobile ? minDim * 0.28 : minDim * 0.34;
+          for (let i = 0; i < lat; i++) {
+            const phi = (i / (lat - 1)) * Math.PI - Math.PI / 2;
+            for (let j = 0; j < lon; j++) {
+              const theta = (j / lon) * Math.PI * 2;
+              const px0 = Math.cos(phi) * Math.cos(theta);
+              const py0 = Math.sin(phi);
+              const pz0 = Math.cos(phi) * Math.sin(theta);
+              const [x1, z1] = rotateY(px0, pz0, ry);
+              const [y2, z2] = rotateX(py0, z1, rx);
+              const px = x1, py = y2, pz = z2;
+              // convert to world: sphere is at (shape cx/cy, z=sphereWz+pz)
+              const totalZ = sphereWz + pz * 0.6;
+              if (totalZ < 0.05) continue;
+              const zf = focal / (focal + totalZ);
+              const sx = px * zf * baseScale + shapeCx;
+              const sy = -py * zf * baseScale + shapeCy;
+              if (sx < 0 || sy < 0 || sx >= W || sy >= H) continue;
+              const col = Math.floor(sx / cellW);
+              const row = Math.floor(sy / cellH);
+              const depthT = (pz + 1) * 0.5;
+              const charRamp = " .·:;+*o#%@";
+              const ci = Math.max(1, Math.floor(depthT * (charRamp.length - 1)));
+              const ch = charRamp[ci];
+              const tone: 0 | 1 | 2 | 3 =
+                depthT > 0.72 ? 3 : depthT > 0.45 ? 2 : 1;
+              putZ(col, row, ch, tone, -totalZ);
+            }
           }
         }
       }
 
-      // ——— Overlay ———
+      // ——— Overlays / HUD ———
       const cols = grid.cols;
       const rows = grid.rows;
       const pad = isMobile ? 2 : 4;
@@ -305,61 +401,61 @@ export function Stage() {
       const rightTitle = "2026 · AVAILABLE";
       grid.writeText(cols - rightTitle.length - pad, 2, rightTitle, 2);
 
-      const pct = Math.round(s * 100).toString().padStart(3, "0");
-      grid.writeText(pad, rows - 3, `scroll ${pct} %`, 2);
-      const hint =
-        s < 0.1
-          ? "scroll to dive ↓"
-          : s > 0.9
-            ? "transmission complete"
-            : s < 0.35
-              ? "forming tunnel"
-              : s < 0.7
-                ? "passing through"
-                : "emerging";
-      grid.writeText(cols - hint.length - pad, rows - 3, hint, 1);
-
-      if (introVis > 0.1) {
-        const label = "A SCHOOL OF IDEAS";
+      // Chapter indicator
+      const chapters = ["fish", "forming", "dive", "emerge", "arrive"];
+      const chapterIdx = Math.min(
+        chapters.length - 1,
+        Math.floor(s * chapters.length - 0.001),
+      );
+      const dotCol = cols - pad - 1;
+      for (let i = 0; i < chapters.length; i++) {
+        const activeDot = i === chapterIdx;
+        const row = Math.floor(rows / 2) - Math.floor(chapters.length / 2) + i * 2;
         grid.writeText(
-          Math.floor((cols - label.length) / 2),
-          Math.floor(rows * 0.1),
-          label,
-          3,
+          dotCol - chapters[i].length - 2,
+          row,
+          activeDot ? chapters[i].toUpperCase() : chapters[i],
+          activeDot ? 3 : 1,
         );
-        const sub = "scroll ↓ to plunge in";
-        grid.writeText(
-          Math.floor((cols - sub.length) / 2),
-          Math.floor(rows * 0.1) + 2,
-          sub,
-          1,
-        );
+        grid.writeText(dotCol, row, activeDot ? "●" : "○", activeDot ? 3 : 1);
       }
 
-      if (scene2Vis > 0.05) {
+      // Top center phase label (ambient)
+      if (fishVis > 0.3) {
+        const label = "A SCHOOL OF IDEAS";
+        grid.writeText(Math.floor((cols - label.length) / 2), Math.floor(rows * 0.12), label, 3);
+        const sub = "scroll ↓ to dive in";
+        grid.writeText(Math.floor((cols - sub.length) / 2), Math.floor(rows * 0.12) + 2, sub, 1);
+      }
+      if (s > 0.30 && s < 0.70) {
+        const label = "PASSING THROUGH";
+        grid.writeText(Math.floor((cols - label.length) / 2), Math.floor(rows * 0.12), label, 2);
+      }
+
+      // ——— Big ASCII name + text (scene 2) ———
+      if (scene2TextVis > 0.03) {
         const words = ["JUNO", "VARGA"];
         const totalH = GLYPH_H * words.length + (words.length - 1);
         const leftCol = isMobile ? 2 : Math.floor(cols * 0.05);
         const topRow = isMobile
-          ? Math.floor(rows * 0.58)
+          ? Math.floor(rows * 0.6)
           : Math.floor((rows - totalH) / 2);
         let curRow = topRow;
-        const reveal = Math.min(1, scene2Vis * 1.4);
+        const reveal = Math.min(1, scene2TextVis * 1.6);
         for (const w of words) {
           const wcols = measureWord(w);
           const showCols = Math.floor(wcols * reveal);
           writeGlyphsPartial(w, leftCol, curRow, showCols, 3);
           curRow += GLYPH_H + 1;
         }
-
         const metaRow = topRow + totalH + 2;
         const meta = [
           "CREATIVE DEVELOPER · MOTION ENGINEER",
-          "crafting interfaces that feel alive.",
+          "crafting interfaces that feel alive",
           "",
           "HELLO@JUNOVARGA.STUDIO",
         ];
-        const metaReveal = Math.min(1, (scene2Vis - 0.3) * 2);
+        const metaReveal = Math.min(1, (scene2TextVis - 0.2) * 2);
         for (let i = 0; i < meta.length; i++) {
           const line = meta[i];
           const t = Math.min(1, Math.max(0, metaReveal * 1.6 - i * 0.2));
@@ -369,22 +465,40 @@ export function Stage() {
         }
       }
 
+      // Footer
+      const pct = Math.round(s * 100).toString().padStart(3, "0");
+      grid.writeText(pad, rows - 3, `${pct} %`, 2);
+      const hint =
+        s < 0.10 ? "scroll to dive ↓"
+        : s > 0.90 ? "transmission complete"
+        : s < 0.30 ? "approaching"
+        : s < 0.72 ? "inside"
+        : "emerging";
+      grid.writeText(cols - hint.length - pad, rows - 3, hint, 1);
+
       // ——— Paint ———
       ctx.fillStyle = "#0a0617";
       ctx.fillRect(0, 0, W, H);
 
-      // faint ambient noise field
-      ctx.fillStyle = `rgba(${INK}, 0.05)`;
+      // ambient noise, very faint
+      ctx.fillStyle = `rgba(${INK}, 0.045)`;
       for (let r = 0; r < rows; r++) {
         let str = "";
         for (let c = 0; c < cols; c++) {
           const n = Math.sin(c * 0.17 + r * 0.11 + time * 0.25);
-          str += n > 0.6 ? "·" : n > 0.2 ? "." : " ";
+          str += n > 0.65 ? "·" : n > 0.25 ? "." : " ";
         }
         ctx.fillText(str, 0, r * cellH);
       }
 
       grid.render(ctx, cellW, cellH);
+
+      // Vignette
+      const grad = ctx.createRadialGradient(cx, cy, minDim * 0.2, cx, cy, minDim * 0.75);
+      grad.addColorStop(0, "rgba(10,6,23,0)");
+      grad.addColorStop(1, "rgba(10,6,23,0.55)");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
 
       raf = requestAnimationFrame(render);
     };
